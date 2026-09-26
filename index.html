@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conic Trace MVP</title>
+<style>
+:root{
+  --bg:#f4f5f7; --panel:#ffffff; --ink:#17181a; --muted:#69707a;
+  --line:#d9dde3; --accent:#2f6fed; --accent2:#e9f0ff; --danger:#c83b3b;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);height:100vh;overflow:hidden}
+.app{display:grid;grid-template-columns:280px 1fr 340px;height:100vh}
+.panel{background:var(--panel);border-right:1px solid var(--line);overflow:auto}
+.right{border-right:0;border-left:1px solid var(--line)}
+.section{padding:16px;border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0 0 4px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+.small{font-size:12px;color:var(--muted);line-height:1.35}
+.row{display:flex;gap:8px;align-items:center;margin:8px 0}
+.row label{font-size:12px;min-width:74px}
+input[type="number"], input[type="text"], select{
+  width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink)
+}
+input[type="range"]{width:100%}
+button{
+  border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;font-weight:600;color:var(--ink)
+}
+button:hover{background:#f7f8fa}
+button.primary{background:var(--accent);border-color:var(--accent);color:white}
+button.soft{background:var(--accent2);border-color:#cddcff;color:#214fbd}
+button.danger{color:var(--danger)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;flex-wrap:wrap;gap:7px}
+.canvasWrap{position:relative;overflow:hidden;background:#fff}
+canvas{display:block;width:100%;height:100%}
+.toolbar{
+  position:absolute;left:12px;top:12px;z-index:3;display:flex;gap:6px;padding:7px;
+  border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.94);box-shadow:0 3px 12px rgba(0,0,0,.08)
+}
+.status{
+  position:absolute;left:12px;bottom:12px;z-index:3;padding:7px 10px;border-radius:8px;
+  background:rgba(20,20,20,.78);color:white;font-size:12px;pointer-events:none
+}
+.card{border:1px solid var(--line);border-radius:9px;padding:10px;margin:8px 0}
+.card.best{border-color:#8cb0ff;background:#f7faff}
+.cardHeader{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.badge{font-size:11px;padding:3px 6px;border-radius:999px;background:#eef1f5;color:#505760}
+.eq{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;background:#f7f8fa;padding:8px;border-radius:6px;margin-top:7px}
+.curveItem{border:1px solid var(--line);border-radius:8px;padding:9px;margin:8px 0}
+.curveTop{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.curveName{font-size:13px;font-weight:700}
+.iconBtn{padding:4px 7px;font-size:12px}
+.kbd{font-family:ui-monospace,monospace;background:#eef0f3;border:1px solid #d7dae0;border-bottom-width:2px;border-radius:5px;padding:1px 5px;font-size:11px}
+#fileInput{width:100%}
+.check{display:flex;align-items:center;gap:8px;font-size:12px}
+hr{border:0;border-top:1px solid var(--line);margin:12px 0}
+.toast{
+  position:absolute;right:12px;bottom:12px;z-index:5;background:#111;color:#fff;padding:9px 12px;border-radius:8px;
+  font-size:12px;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none
+}
+.toast.show{opacity:1;transform:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <div class="section">
+      <h1>Conic Trace MVP</h1>
+      <div class="small">Upload an image, click along one curve, fit it, accept the result, then copy the Desmos equations. This version is intentionally limited to curve types that paste cleanly into Desmos: lines, parabolas, and full circles for closed traces.</div>
+    </div>
+
+    <div class="section">
+      <h2>Background image</h2>
+      <input id="fileInput" type="file" accept="image/*">
+      <div class="row"><label>Opacity</label><input id="opacity" type="range" min="0" max="1" step="0.01" value="0.45"></div>
+      <div class="row"><label>Scale</label><input id="imgScale" type="number" step="0.05" value="1"></div>
+      <div class="row"><label>X offset</label><input id="imgX" type="number" step="1" value="0"></div>
+      <div class="row"><label>Y offset</label><input id="imgY" type="number" step="1" value="0"></div>
+      <div class="btns">
+        <button id="centerImage">Center / fit image</button>
+        <button id="hideImage">Hide image</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Coordinate plane</h2>
+      <div class="row"><label>X min</label><input id="xmin" type="number" value="-10"></div>
+      <div class="row"><label>X max</label><input id="xmax" type="number" value="10"></div>
+      <div class="row"><label>Y min</label><input id="ymin" type="number" value="-10"></div>
+      <div class="row"><label>Y max</label><input id="ymax" type="number" value="10"></div>
+      <div class="row"><label>Grid step</label><input id="gridStep" type="number" min="0.1" step="0.5" value="1"></div>
+      <div class="check"><input id="showGrid" type="checkbox" checked><label for="showGrid">Show grid and axes</label></div>
+    </div>
+
+    <div class="section">
+      <h2>Trace</h2>
+      <div class="small">Click points along a single smooth section. 5–20 points usually works well. Zoom/pan now moves the image and trace together for close-up tracing. If you want a circle fit, trace a closed loop so the last point ends near the first.</div>
+      <div class="btns" style="margin-top:10px">
+        <button class="primary" id="fitBtn">Fit curve</button>
+        <button id="undoPoint">Undo point</button>
+        <button id="clearTrace">Clear trace</button>
+      </div>
+      <div class="row"><label>Round to</label>
+        <select id="precision">
+          <option value="2">2 decimals</option>
+          <option value="3" selected>3 decimals</option>
+          <option value="4">4 decimals</option>
+        </select>
+      </div>
+      <div class="check"><input id="restrict" type="checkbox" checked><label for="restrict">Add automatic restrictions</label></div>
+    </div>
+
+    <div class="section">
+      <h2>Shortcuts</h2>
+      <div class="small"><span class="kbd">Enter</span> fit &nbsp; <span class="kbd">Ctrl+Z</span> undo point &nbsp; <span class="kbd">Esc</span> clear trace</div>
+    </div>
+  </aside>
+
+  <main class="canvasWrap" id="canvasWrap">
+    <canvas id="canvas"></canvas>
+    <div class="toolbar">
+      <button id="zoomIn">＋</button>
+      <button id="zoomOut">−</button>
+      <button id="panLeft">←</button>
+      <button id="panRight">→</button>
+      <button id="panUp">↑</button>
+      <button id="panDown">↓</button>
+      <button id="resetView">Reset</button>
+    </div>
+    <div class="status" id="status">Click on the canvas to trace a curve.</div>
+    <div class="toast" id="toast"></div>
+  </main>
+
+  <aside class="panel right">
+    <div class="section">
+      <h2>Fit candidates</h2>
+      <div id="candidates"><div class="small">Trace at least 2 points, then press <b>Fit curve</b>. Open traces try line + parabolas. Closed traces also try a full circle.</div></div>
+    </div>
+    <div class="section">
+      <div class="cardHeader"><h2 style="margin:0">Accepted curves</h2><button id="clearCurves" class="iconBtn danger">Clear</button></div>
+      <div id="curveList"><div class="small">No accepted curves yet.</div></div>
+    </div>
+    <div class="section">
+      <h2>Export</h2>
+      <div class="btns">
+        <button class="primary" id="copyAll">Copy Desmos equations</button>
+        <button id="downloadTxt">Download TXT</button>
+        <button id="saveProject">Save project</button>
+        <button id="loadProjectBtn">Load project</button>
+        <input id="loadProject" type="file" accept=".json,application/json" style="display:none">
+      </div>
+      <div class="small" style="margin-top:8px">Accepted curves are exported as plain Desmos text. Open traces fit lines and parabolas with natural x/y restrictions. Circles are only offered when your trace is closed, and then export as a full circle equation.</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const canvas = $('canvas'), ctx = canvas.getContext('2d');
+const wrap = $('canvasWrap');
+let trace = [];
+let candidates = [];
+let curves = [];
+let bgImage = null;
+let imageVisible = true;
+let imgNatural = {w:1,h:1};
+let imgBaseWorld = {w:1,h:1};
+
+function num(id){ return parseFloat($(id).value); }
+function bounds(){ return {xmin:num('xmin'), xmax:num('xmax'), ymin:num('ymin'), ymax:num('ymax')}; }
+function round(v){ const p=+($('precision').value); return Math.abs(v)<Math.pow(10,-p)?0:+v.toFixed(p); }
+function fmt(v){ v=round(v); return Number.isInteger(v)? String(v): String(v); }
+function resize(){
+  const r=wrap.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+  canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+  canvas.style.width=r.width+'px'; canvas.style.height=r.height+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+window.addEventListener('resize', resize);
+
+function W(){ return canvas.getBoundingClientRect().width; }
+function H(){ return canvas.getBoundingClientRect().height; }
+
+// Desmos-style viewport: one x-unit and one y-unit always have the same pixel size.
+// Extra space is letterboxed/pillarboxed instead of stretching the graph/image.
+function viewTransform(){
+  const b=bounds();
+  const worldW=b.xmax-b.xmin, worldH=b.ymax-b.ymin;
+  const scale=Math.min(W()/worldW, H()/worldH);
+  const usedW=worldW*scale, usedH=worldH*scale;
+  const padX=(W()-usedW)/2, padY=(H()-usedH)/2;
+  return {scale,padX,padY};
+}
+function toScreen(x,y){
+  const b=bounds(), v=viewTransform();
+  return [
+    v.padX + (x-b.xmin)*v.scale,
+    v.padY + (b.ymax-y)*v.scale
+  ];
+}
+function toWorld(px,py){
+  const b=bounds(), v=viewTransform();
+  return [
+    b.xmin + (px-v.padX)/v.scale,
+    b.ymax - (py-v.padY)/v.scale
+  ];
+}
+function pxPerUnit(){ const v=viewTransform(); return {x:v.scale, y:v.scale}; }
+
+function niceGrid(){
+  if(!$('showGrid').checked) return;
+  const b=bounds(), step=Math.max(.0001,num('gridStep')||1), v=viewTransform();
+  const left=v.padX, right=v.padX+(b.xmax-b.xmin)*v.scale;
+  const top=v.padY, bottom=v.padY+(b.ymax-b.ymin)*v.scale;
+  ctx.save();
+  ctx.lineWidth=1;
+  ctx.strokeStyle='#e5e8ec';
+  ctx.fillStyle='#7a8089';
+  ctx.font='11px system-ui';
+  let startX=Math.ceil(b.xmin/step)*step;
+  for(let x=startX;x<=b.xmax+1e-9;x+=step){
+    const [sx]=toScreen(x,0);
+    ctx.beginPath(); ctx.moveTo(sx,top); ctx.lineTo(sx,bottom); ctx.stroke();
+  }
+  let startY=Math.ceil(b.ymin/step)*step;
+  for(let y=startY;y<=b.ymax+1e-9;y+=step){
+    const [,sy]=toScreen(0,y);
+    ctx.beginPath(); ctx.moveTo(left,sy); ctx.lineTo(right,sy); ctx.stroke();
+  }
+  ctx.strokeStyle='#8a9098'; ctx.lineWidth=1.4;
+  if(b.xmin<=0 && b.xmax>=0){ const [sx]=toScreen(0,0); ctx.beginPath();ctx.moveTo(sx,top);ctx.lineTo(sx,bottom);ctx.stroke(); }
+  if(b.ymin<=0 && b.ymax>=0){ const [,sy]=toScreen(0,0); ctx.beginPath();ctx.moveTo(left,sy);ctx.lineTo(right,sy);ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawBackground(){
+  if(!bgImage || !imageVisible) return;
+
+  // IMPORTANT: the image has a fixed size in graph/world coordinates.
+  // Changing the graph bounds therefore zooms/pans BOTH the trace and image together,
+  // just like zooming around a background image in Desmos.
+  const s=Math.max(0.001, num('imgScale')||1);
+  const ox=num('imgX')||0, oy=num('imgY')||0;
+  const targetW=imgBaseWorld.w*s;
+  const targetH=imgBaseWorld.h*s;
+
+  const left=ox-targetW/2, right=ox+targetW/2;
+  const bottom=oy-targetH/2, top=oy+targetH/2;
+  const pTL=toScreen(left,top), pBR=toScreen(right,bottom);
+  const dw=pBR[0]-pTL[0], dh=pBR[1]-pTL[1];
+
+  if(!isFinite(dw)||!isFinite(dh)||dw<=0||dh<=0) return;
+
+  ctx.save();
+  ctx.globalAlpha=+($('opacity').value);
+  ctx.imageSmoothingEnabled=true;
+  ctx.drawImage(bgImage,pTL[0],pTL[1],dw,dh);
+
+  // faint frame makes it obvious where the uploaded image is
+  ctx.globalAlpha=0.7;
+  ctx.strokeStyle='#2f6fed';
+  ctx.lineWidth=1;
+  ctx.setLineDash([5,4]);
+  ctx.strokeRect(pTL[0],pTL[1],dw,dh);
+  ctx.restore();
+}
+
+function drawTrace(){
+  if(!trace.length) return;
+  ctx.save();
+  ctx.strokeStyle='#e45a2a'; ctx.fillStyle='#e45a2a'; ctx.lineWidth=2;
+  ctx.beginPath();
+  trace.forEach((p,i)=>{ const [x,y]=toScreen(p.x,p.y); if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+  ctx.stroke();
+  for(const p of trace){ const [x,y]=toScreen(p.x,p.y); ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill(); }
+  ctx.restore();
+}
+
+function draw(){
+  ctx.clearRect(0,0,W(),H());
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W(),H());
+  drawBackground(); niceGrid();
+  for(const c of curves) drawModel(c,'#111',2.2);
+  if(candidates[0]) drawModel(candidates[0],'#2f6fed',2.5,true);
+  drawTrace();
+  $('status').textContent = trace.length
+    ? `${trace.length} trace point${trace.length===1?'':'s'} — press Enter or Fit curve${isClosedTrace() ? ' · closed trace detected' : ''}`
+    : 'Click on the canvas to trace a curve.';
+}
+
+function drawModel(m,color,width,dashed=false){
+  ctx.save(); ctx.strokeStyle=color; ctx.lineWidth=width; if(dashed)ctx.setLineDash([6,4]);
+  const b=bounds(), N=700;
+  if(m.type==='line'){
+    ctx.beginPath();
+    if(m.vertical){
+      const [sx]=toScreen(m.c,0); ctx.moveTo(sx,0);ctx.lineTo(sx,H());
+    } else {
+      let first=true;
+      for(let i=0;i<=N;i++){
+        const x=b.xmin+(b.xmax-b.xmin)*i/N;
+        if(m.xr && (x<m.xr[0]||x>m.xr[1])) continue;
+        const y=m.m*x+m.b; const [sx,sy]=toScreen(x,y);
+        if(first){ctx.moveTo(sx,sy);first=false}else ctx.lineTo(sx,sy);
+      }
+    }
+    ctx.stroke();
+  } else if(m.type==='quadY'){
+    ctx.beginPath(); let first=true;
+    const lo=m.xr?m.xr[0]:b.xmin, hi=m.xr?m.xr[1]:b.xmax;
+    for(let i=0;i<=N;i++){ const x=lo+(hi-lo)*i/N; const y=m.a*x*x+m.bb*x+m.c; const [sx,sy]=toScreen(x,y); if(first){ctx.moveTo(sx,sy);first=false}else ctx.lineTo(sx,sy); } ctx.stroke();
+  } else if(m.type==='quadX'){
+    ctx.beginPath(); let first=true;
+    const lo=m.yr?m.yr[0]:b.ymin, hi=m.yr?m.yr[1]:b.ymax;
+    for(let i=0;i<=N;i++){ const y=lo+(hi-lo)*i/N; const x=m.a*y*y+m.bb*y+m.c; const [sx,sy]=toScreen(x,y); if(first){ctx.moveTo(sx,sy);first=false}else ctx.lineTo(sx,sy); } ctx.stroke();
+  } else if(m.type==='circle'){
+    const [sx,sy]=toScreen(m.h,m.k), p=pxPerUnit();
+    ctx.beginPath();
+    ctx.ellipse(sx,sy,Math.abs(m.r*p.x),Math.abs(m.r*p.y),0,0,Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+canvas.addEventListener('click',e=>{
+  const r=canvas.getBoundingClientRect(); const [x,y]=toWorld(e.clientX-r.left,e.clientY-r.top);
+  trace.push({x,y}); candidates=[]; renderCandidates(); draw();
+});
+
+function solve(A,b){
+  const n=A.length, M=A.map((r,i)=>r.slice().concat([b[i]]));
+  for(let col=0;col<n;col++){
+    let piv=col;
+    for(let r=col+1;r<n;r++) if(Math.abs(M[r][col])>Math.abs(M[piv][col])) piv=r;
+    if(Math.abs(M[piv][col])<1e-12) return null;
+    [M[col],M[piv]]=[M[piv],M[col]];
+    const d=M[col][col]; for(let j=col;j<=n;j++)M[col][j]/=d;
+    for(let r=0;r<n;r++) if(r!==col){ const f=M[r][col]; for(let j=col;j<=n;j++)M[r][j]-=f*M[col][j]; }
+  }
+  return M.map(r=>r[n]);
+}
+function leastSquares(rows, vals){
+  const k=rows[0].length, ATA=Array.from({length:k},()=>Array(k).fill(0)), ATb=Array(k).fill(0);
+  for(let i=0;i<rows.length;i++){
+    for(let a=0;a<k;a++){ ATb[a]+=rows[i][a]*vals[i]; for(let c=0;c<k;c++)ATA[a][c]+=rows[i][a]*rows[i][c]; }
+  }
+  return solve(ATA,ATb);
+}
+function rms(vals){ return Math.sqrt(vals.reduce((s,v)=>s+v*v,0)/Math.max(1,vals.length)); }
+function ranges(){ return {
+  xr:[Math.min(...trace.map(p=>p.x)),Math.max(...trace.map(p=>p.x))],
+  yr:[Math.min(...trace.map(p=>p.y)),Math.max(...trace.map(p=>p.y))]
+};}
+function endpointRanges(){
+  const a=trace[0], z=trace[trace.length-1];
+  return {
+    xr:[Math.min(a.x,z.x), Math.max(a.x,z.x)],
+    yr:[Math.min(a.y,z.y), Math.max(a.y,z.y)]
+  };
+}
+function isClosedTrace(){
+  if(trace.length < 5) return false;
+  const a = trace[0], z = trace[trace.length-1];
+  const dist = Math.hypot(a.x-z.x, a.y-z.y);
+  const R = ranges();
+  const span = Math.max(R.xr[1]-R.xr[0], R.yr[1]-R.yr[0], 1e-9);
+  // If the endpoints are within about 12% of the overall size, treat as closed.
+  return dist <= 0.12 * span;
+}
+
+function fitLine(){
+  const xs=trace.map(p=>p.x), ys=trace.map(p=>p.y);
+  const vx=variance(xs), vy=variance(ys), R=endpointRanges();
+  if(vx < vy*.04){
+    const c=xs.reduce((a,b)=>a+b,0)/xs.length;
+    return {type:'line',vertical:true,c,yr:R.yr,error:rms(xs.map(x=>x-c)),name:'Vertical line'};
+  }
+  const s=leastSquares(trace.map(p=>[p.x,1]),ys); if(!s)return null;
+  const [m,b]=s; return {type:'line',m,b,xr:R.xr,error:rms(trace.map(p=>p.y-(m*p.x+b))),name:'Line'};
+}
+function variance(a){ const m=a.reduce((s,v)=>s+v,0)/a.length; return a.reduce((s,v)=>s+(v-m)*(v-m),0)/a.length; }
+
+function fitQuadY(){
+  if(trace.length<3)return null; const R=endpointRanges();
+  const s=leastSquares(trace.map(p=>[p.x*p.x,p.x,1]),trace.map(p=>p.y)); if(!s)return null;
+  const [a,bb,c]=s; return {type:'quadY',a,bb,c,xr:R.xr,error:rms(trace.map(p=>p.y-(a*p.x*p.x+bb*p.x+c))),name:'Parabola y=f(x)'};
+}
+function fitQuadX(){
+  if(trace.length<3)return null; const R=endpointRanges();
+  const s=leastSquares(trace.map(p=>[p.y*p.y,p.y,1]),trace.map(p=>p.x)); if(!s)return null;
+  const [a,bb,c]=s; return {type:'quadX',a,bb,c,yr:R.yr,error:rms(trace.map(p=>p.x-(a*p.y*p.y+bb*p.y+c))),name:'Parabola x=f(y)'};
+}
+function fitCircle(){
+  if(trace.length<5)return null;
+  const s=leastSquares(trace.map(p=>[p.x,p.y,1]),trace.map(p=>-(p.x*p.x+p.y*p.y))); if(!s)return null;
+  const [D,E,F]=s, h=-D/2,k=-E/2, r2=h*h+k*k-F; if(!(r2>0))return null; const r=Math.sqrt(r2);
+  const err=rms(trace.map(p=>Math.hypot(p.x-h,p.y-k)-r));
+  return {type:'circle',h,k,r,error:err,name:'Circle (closed trace only)',closed:true};
+}
+function fitEllipse(){
+  if(trace.length<5)return null;
+  const s=leastSquares(trace.map(p=>[p.x*p.x,p.y*p.y,p.x,p.y]),trace.map(_=>1)); if(!s)return null;
+  let [A,C,D,E]=s;
+  if(Math.abs(A)<1e-12||Math.abs(C)<1e-12||A*C<=0)return null;
+  const h=-D/(2*A), k=-E/(2*C);
+  const K=1 + A*h*h + C*k*k;
+  if(K/A<=0||K/C<=0)return null;
+  const rx=Math.sqrt(K/A), ry=Math.sqrt(K/C);
+  if(!isFinite(rx)||!isFinite(ry)||rx===0||ry===0)return null;
+  const err=rms(trace.map(p=>{
+    const q=Math.sqrt(((p.x-h)/rx)**2+((p.y-k)/ry)**2);
+    return Math.abs(q-1)*Math.min(rx,ry);
+  }));
+  const R=ranges();
+  const a0=Math.atan2((trace[0].y-k)/ry,(trace[0].x-h)/rx);
+  const a1=Math.atan2((trace[trace.length-1].y-k)/ry,(trace[trace.length-1].x-h)/rx);
+  return {type:'ellipse',h,k,rx,ry,error:err,name:'Axis-aligned ellipse',xr:R.xr,yr:R.yr,a0,a1};
+}
+
+function doFit(){
+  if(trace.length<2){ toast('Trace at least 2 points first.'); return; }
+
+  const closed = isClosedTrace();
+  candidates=[fitLine(),fitQuadY(),fitQuadX()];
+  if(closed) candidates.push(fitCircle());
+
+  candidates=candidates.filter(Boolean).sort((a,b)=>a.error-b.error);
+  for(const c of candidates) c.tracePts=JSON.parse(JSON.stringify(trace));
+
+  if(!candidates.length){
+    toast('Could not fit a supported curve to that trace.');
+    return;
+  }
+
+  renderCandidates();
+  draw();
+
+  if(closed){
+    toast('Closed trace detected: circle fit included.');
+  }
+}
+$('fitBtn').onclick=doFit;
+
+function restriction(m){
+  if(!$('restrict').checked)return '';
+  if(m.type==='quadY'||(m.type==='line'&&!m.vertical))
+    return `{${fmt(m.xr[0])}<x<${fmt(m.xr[1])}}`;
+  if(m.type==='quadX'||(m.type==='line'&&m.vertical)) {
+    const rr=m.yr;
+    return `{${fmt(rr[0])}<y<${fmt(rr[1])}}`;
+  }
+  return '';
+}
+function equation(m){
+  if(m.type==='line'){
+    if(m.vertical)return `x=${fmt(m.c)}${restriction(m)}`;
+    return `y=${fmt(m.m)}x${signed(m.b)}${restriction(m)}`;
+  }
+  if(m.type==='quadY'){
+    if(Math.abs(m.a)>1e-12){
+      const h=-m.bb/(2*m.a), k=m.c-m.a*h*h;
+      return `y=${fmt(m.a)}(x${signed(-h)})^2${signed(k)}${restriction(m)}`;
+    }
+  }
+  if(m.type==='quadX'){
+    if(Math.abs(m.a)>1e-12){
+      const k=-m.bb/(2*m.a), h=m.c-m.a*k*k;
+      return `x=${fmt(m.a)}(y${signed(-k)})^2${signed(h)}${restriction(m)}`;
+    }
+  }
+  if(m.type==='circle'){
+    return `(x${signed(-m.h)})^2+(y${signed(-m.k)})^2=${fmt(m.r*m.r)}`;
+  }
+  return '';
+}
+function signed(v){ const z=round(v); return z>=0?`+${fmt(z)}`:`${fmt(z)}`; }
+
+function renderCandidates(){
+  const root=$('candidates'); root.innerHTML='';
+  if(!candidates.length){ root.innerHTML='<div class="small">Trace at least 2 points, then press <b>Fit curve</b>.</div>'; return; }
+  candidates.forEach((m,i)=>{
+    const el=document.createElement('div'); el.className='card '+(i===0?'best':'');
+    el.innerHTML=`<div class="cardHeader"><b>${m.name}</b><span class="badge">${i===0?'best fit · ':''}error ${fmt(m.error)}</span></div>
+      <div class="eq">${equation(m)}</div>
+      <div class="btns" style="margin-top:8px"><button class="soft accept">Accept</button><button class="preview">Preview</button></div>`;
+    el.querySelector('.accept').onclick=()=>acceptCandidate(i);
+    el.querySelector('.preview').onclick=()=>{ const chosen=candidates.splice(i,1)[0]; candidates.unshift(chosen); renderCandidates(); draw(); };
+    root.appendChild(el);
+  });
+}
+function acceptCandidate(i){
+  const m=JSON.parse(JSON.stringify(candidates[i]));
+  m.id=Date.now()+Math.random();
+  m.tracePts=JSON.parse(JSON.stringify(trace));
+  curves.push(m);
+  trace=[]; candidates=[]; renderCandidates(); renderCurves(); draw(); toast('Curve accepted.');
+}
+function renderCurves(){
+  const root=$('curveList'); root.innerHTML='';
+  if(!curves.length){ root.innerHTML='<div class="small">No accepted curves yet.</div>'; return; }
+  curves.forEach((m,i)=>{
+    const el=document.createElement('div'); el.className='curveItem';
+    el.innerHTML=`<div class="curveTop"><div class="curveName">${i+1}. ${m.name}</div>
+      <div><button class="iconBtn copy">Copy</button> <button class="iconBtn danger del">Delete</button></div></div>
+      <div class="eq">${equation(m)}</div>`;
+    el.querySelector('.copy').onclick=()=>copyText(equation(m));
+    el.querySelector('.del').onclick=()=>{curves.splice(i,1);renderCurves();draw();};
+    root.appendChild(el);
+  });
+}
+
+$('undoPoint').onclick=()=>{trace.pop();candidates=[];renderCandidates();draw();};
+$('clearTrace').onclick=()=>{trace=[];candidates=[];renderCandidates();draw();};
+$('clearCurves').onclick=()=>{if(confirm('Delete all accepted curves?')){curves=[];renderCurves();draw();}};
+
+function copyText(t){ navigator.clipboard.writeText(t).then(()=>toast('Copied.')).catch(()=>fallbackCopy(t)); }
+function fallbackCopy(t){ const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();toast('Copied.'); }
+$('copyAll').onclick=()=>{ if(!curves.length)return toast('No accepted curves yet.'); copyText(curves.map(equation).join('\n')); };
+$('downloadTxt').onclick=()=>{ if(!curves.length)return toast('No accepted curves yet.'); download('conic-desmos-equations.txt',curves.map(equation).join('\n'),'text/plain'); };
+function download(name,text,type){ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
+
+$('saveProject').onclick=()=>{
+  const project={version:1,bounds:bounds(),gridStep:num('gridStep'),curves, image:{scale:num('imgScale'),x:num('imgX'),y:num('imgY'),opacity:+$('opacity').value,baseW:imgBaseWorld.w,baseH:imgBaseWorld.h}};
+  download('conic-trace-project.json',JSON.stringify(project,null,2),'application/json');
+};
+$('loadProjectBtn').onclick=()=>$('loadProject').click();
+$('loadProject').onchange=e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const fr=new FileReader(); fr.onload=()=>{
+    try{
+      const p=JSON.parse(fr.result);
+      if(p.bounds){for(const k of ['xmin','xmax','ymin','ymax']) $(k).value=p.bounds[k];}
+      if(p.gridStep)$('gridStep').value=p.gridStep;
+      curves=p.curves||[];
+      if(p.image){$('imgScale').value=p.image.scale??1;$('imgX').value=p.image.x??0;$('imgY').value=p.image.y??0;$('opacity').value=p.image.opacity??.45;if(p.image.baseW)imgBaseWorld.w=p.image.baseW;if(p.image.baseH)imgBaseWorld.h=p.image.baseH;}
+      renderCurves();draw();toast('Project loaded.');
+    }catch(err){alert('Could not load project JSON.');}
+  }; fr.readAsText(f);
+};
+
+$('fileInput').onchange=e=>{
+  const f=e.target.files && e.target.files[0];
+  if(!f) return;
+
+  $('status').textContent='Loading image…';
+
+  // Use FileReader/Data URL instead of an object URL. This works more
+  // consistently when the HTML file is opened directly from disk.
+  const reader=new FileReader();
+  reader.onerror=()=>toast('Could not read that image file.');
+  reader.onload=()=>{
+    const img=new Image();
+    img.onload=()=>{
+      bgImage=img;
+      imgNatural={w:img.naturalWidth||img.width,h:img.naturalHeight||img.height};
+      imageVisible=true;
+      $('hideImage').textContent='Hide image';
+
+      // Fit the image into the CURRENT graph bounds once, then keep that
+      // world-coordinate size fixed while the user zooms/pans.
+      const b=bounds();
+      const worldW=b.xmax-b.xmin, worldH=b.ymax-b.ymin;
+      const imageAspect=imgNatural.w/imgNatural.h;
+      const viewAspect=worldW/worldH;
+
+      if(imageAspect >= viewAspect){
+        imgBaseWorld.w=worldW*0.9;
+        imgBaseWorld.h=imgBaseWorld.w/imageAspect;
+      } else {
+        imgBaseWorld.h=worldH*0.9;
+        imgBaseWorld.w=imgBaseWorld.h*imageAspect;
+      }
+
+      $('imgX').value=(b.xmin+b.xmax)/2;
+      $('imgY').value=(b.ymin+b.ymax)/2;
+      $('imgScale').value=1;
+
+      draw();
+      toast(`Image loaded: ${imgNatural.w}×${imgNatural.h}`);
+    };
+    img.onerror=()=>toast('Browser could not decode that image.');
+    img.src=reader.result;
+  };
+  reader.readAsDataURL(f);
+};
+$('centerImage').onclick=()=>{
+  const b=bounds();
+  $('imgX').value=(b.xmin+b.xmax)/2;
+  $('imgY').value=(b.ymin+b.ymax)/2;
+
+  if(bgImage){
+    const worldW=b.xmax-b.xmin, worldH=b.ymax-b.ymin;
+    const imageAspect=imgNatural.w/imgNatural.h;
+    const viewAspect=worldW/worldH;
+    if(imageAspect >= viewAspect){
+      imgBaseWorld.w=worldW*0.9;
+      imgBaseWorld.h=imgBaseWorld.w/imageAspect;
+    } else {
+      imgBaseWorld.h=worldH*0.9;
+      imgBaseWorld.w=imgBaseWorld.h*imageAspect;
+    }
+  }
+
+  $('imgScale').value=1;
+  imageVisible=true;
+  $('hideImage').textContent='Hide image';
+  draw();
+};
+$('hideImage').onclick=()=>{imageVisible=!imageVisible;$('hideImage').textContent=imageVisible?'Hide image':'Show image';draw();};
+
+['opacity','imgScale','imgX','imgY','xmin','xmax','ymin','ymax','gridStep','showGrid','precision','restrict'].forEach(id=>$(id).addEventListener('input',()=>{renderCandidates();renderCurves();draw();}));
+
+function changeView(factor){
+  const b=bounds(), cx=(b.xmin+b.xmax)/2, cy=(b.ymin+b.ymax)/2, hw=(b.xmax-b.xmin)*factor/2, hh=(b.ymax-b.ymin)*factor/2;
+  $('xmin').value=cx-hw;$('xmax').value=cx+hw;$('ymin').value=cy-hh;$('ymax').value=cy+hh;draw();
+}
+$('zoomIn').onclick=()=>changeView(.8); $('zoomOut').onclick=()=>changeView(1.25);
+function pan(dx,dy){ const b=bounds(), sx=(b.xmax-b.xmin)*dx, sy=(b.ymax-b.ymin)*dy; $('xmin').value=b.xmin+sx;$('xmax').value=b.xmax+sx;$('ymin').value=b.ymin+sy;$('ymax').value=b.ymax+sy;draw(); }
+$('panLeft').onclick=()=>pan(-.1,0);$('panRight').onclick=()=>pan(.1,0);$('panUp').onclick=()=>pan(0,.1);$('panDown').onclick=()=>pan(0,-.1);
+$('resetView').onclick=()=>{$('xmin').value=-10;$('xmax').value=10;$('ymin').value=-10;$('ymax').value=10;draw();};
+
+window.addEventListener('keydown',e=>{
+  if(e.key==='Enter' && !['INPUT','SELECT'].includes(document.activeElement.tagName)){e.preventDefault();doFit();}
+  if(e.key==='Escape'){trace=[];candidates=[];renderCandidates();draw();}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z' && !['INPUT','SELECT'].includes(document.activeElement.tagName)){e.preventDefault();trace.pop();candidates=[];renderCandidates();draw();}
+});
+function toast(msg){ const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),1400); }
+
+resize(); renderCandidates(); renderCurves();
+})();
+</script>
+</body>
+</html>
